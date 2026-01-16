@@ -2,38 +2,77 @@
 <html lang="en">
 <head>
     <meta charset="utf-8" />
-    <title>BC JavaScript Test</title>
-
-    <script>
-        function sayHello() {
-            alert("Hello from JavaScript inside Business Central!");
-        }
-
-        function sendMessageToBC() {
-            window.parent.postMessage(
-                { type: "FromIframe", message: "Hello BC!" },
-                "*"
-            );
-        }
-    </script>
+    <title>Business Central JS Test</title>
 
     <style>
         body {
-            font-family: Segoe UI, Arial;
-            padding: 20px;
+            font-family: Segoe UI, Arial, sans-serif;
+            padding: 16px;
+        }
+        h2 {
+            margin-top: 0;
         }
         button {
-            padding: 10px 16px;
+            padding: 8px 14px;
             margin-right: 10px;
+            margin-top: 10px;
+        }
+        #log {
+            margin-top: 15px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background: #f9f9f9;
+            font-size: 13px;
         }
     </style>
+
+    <script>
+        // ---- Utility ----
+        function log(msg) {
+            const el = document.getElementById("log");
+            el.innerHTML += msg + "<br/>";
+        }
+
+        // ---- Called by AL (procedure SendMessageToJs) ----
+        function SendMessageToJs(message) {
+            log("From AL: " + message);
+        }
+
+        // ---- Send message to AL (event MessageFromJs) ----
+        function sendToAL() {
+            Microsoft.Dynamics.NAV.InvokeExtensibilityMethod(
+                "MessageFromJs",
+                ["Hello from JavaScript"]
+            );
+        }
+
+        // ---- Notify AL that the add-in is ready ----
+        function notifyReady() {
+            Microsoft.Dynamics.NAV.InvokeExtensibilityMethod(
+                "AddInReady",
+                []
+            );
+        }
+
+        // ---- Startup ----
+        window.addEventListener("load", function () {
+            try {
+                notifyReady();
+                log("JavaScript loaded successfully.");
+            } catch (e) {
+                log("BC API not available.");
+            }
+        });
+    </script>
 </head>
+
 <body>
 
-    <h2>Business Central JavaScript Test</h2>
+    <h2>Business Central Control Add-in Test</h2>
 
-    <button onclick="sayHello()">Alert Test</button>
-    <button onclick="sendMessageToBC()">postMessage Test</button>
+    <button onclick="sendToAL()">Send Message to AL</button>
+
+    <div id="log"></div>
 
 </body>
 </html>
