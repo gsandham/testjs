@@ -1,78 +1,85 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8" />
-    <title>Business Central JS Test</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Business Central Control Add-in Test</title>
 
-    <style>
-        body {
-            font-family: Segoe UI, Arial, sans-serif;
-            padding: 16px;
-        }
-        h2 {
-            margin-top: 0;
-        }
-        button {
-            padding: 8px 14px;
-            margin-right: 10px;
-            margin-top: 10px;
-        }
-        #log {
-            margin-top: 15px;
-            padding: 10px;
-            border: 1px solid #ccc;
-            background: #f9f9f9;
-            font-size: 13px;
-        }
-    </style>
+  <style>
+    body {
+      font-family: Segoe UI, Arial, sans-serif;
+      padding: 16px;
+      margin: 0;
+    }
+    h2 {
+      margin: 0 0 12px 0;
+    }
+    button {
+      padding: 8px 14px;
+      margin: 10px 10px 0 0;
+      cursor: pointer;
+    }
+    #log {
+      margin-top: 14px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      background: #fafafa;
+      min-height: 80px;
+      font-size: 13px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
+    .hint {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #555;
+    }
+  </style>
 
-    <script>
-        // ---- Utility ----
-        function log(msg) {
-            const el = document.getElementById("log");
-            el.innerHTML += msg + "<br/>";
-        }
+  <script>
+    // NOTE:
+    // This page runs INSIDE an iframe in Business Central.
+    // It CANNOT call Microsoft.Dynamics.NAV directly.
+    // Instead it talks to the parent (startup.js) via postMessage.
 
-        // ---- Called by AL (procedure SendMessageToJs) ----
-        function SendMessageToJs(message) {
-            log("From AL: " + message);
-        }
+    function log(msg) {
+      var el = document.getElementById("log");
+      if (el) el.innerHTML += msg + "\n";
+    }
 
-        // ---- Send message to AL (event MessageFromJs) ----
-        function sendToAL() {
-            Microsoft.Dynamics.NAV.InvokeExtensibilityMethod(
-                "MessageFromJs",
-                ["Hello from JavaScript"]
-            );
-        }
+    function sendToAL() {
+      // Send a message up to the parent (startup.js bridge)
+      window.parent.postMessage(
+        { type: "MessageFromJs", message: "Hello from the GitHub page!" },
+        "*"
+      );
+      log("Sent to AL (via parent bridge): Hello from the GitHub page!");
+    }
 
-        // ---- Notify AL that the add-in is ready ----
-        function notifyReady() {
-            Microsoft.Dynamics.NAV.InvokeExtensibilityMethod(
-                "AddInReady",
-                []
-            );
-        }
+    // Receive messages coming FROM AL (forwarded by startup.js)
+    window.addEventListener("message", function (event) {
+      var data = event.data || {};
+      if (data.type === "FromAL") {
+        log("From AL: " + String(data.message || ""));
+      }
+    });
 
-        // ---- Startup ----
-        window.addEventListener("load", function () {
-            try {
-                notifyReady();
-                log("JavaScript loaded successfully.");
-            } catch (e) {
-                log("BC API not available.");
-            }
-        });
-    </script>
+    window.addEventListener("load", function () {
+      log("GitHub page loaded.");
+      log("Waiting for messages from AL...");
+    });
+  </script>
 </head>
 
 <body>
+  <h2>Business Central Control Add-in Test</h2>
 
-    <h2>Business Central Control Add-in Test</h2>
+  <button onclick="sendToAL()">Send Message to AL</button>
 
-    <button onclick="sendToAL()">Send Message to AL</button>
+  <div class="hint">
+    If you see this page inside Business Central, the iframe is working. Messages go through <code>postMessage</code>.
+  </div>
 
-    <div id="log"></div>
-
+  <div id="log"></div>
 </body>
 </html>
