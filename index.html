@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>BC JavaScript Test</title>
+
+    <script>
+        function sayHello() {
+            alert("Hello from JavaScript inside Business Central!");
+        }
+
+        function sendMessageToBC() {
+            window.parent.postMessage(
+                { type: "FromIframe", message: "Hello BC!" },
+                "*"
+            );
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: Segoe UI, Arial;
+            padding: 20px;
+        }
+        button {
+            padding: 10px 16px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Business Central JavaScript Test</h2>
+
+    <button onclick="sayHello()">Alert Test</button>
+    <button onclick="sendMessageToBC()">postMessage Test</button>
+
+</body>
+</html>
