@@ -3,83 +3,90 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Business Central Control Add-in Test</title>
+  <title>Form.io in Business Central (iframe)</title>
+
+  <!-- Form.io CSS -->
+  <link rel="stylesheet" href="https://cdn.form.io/formiojs/formio.full.min.css">
 
   <style>
-    body {
-      font-family: Segoe UI, Arial, sans-serif;
-      padding: 16px;
-      margin: 0;
-    }
-    h2 {
-      margin: 0 0 12px 0;
-    }
-    button {
-      padding: 8px 14px;
-      margin: 10px 10px 0 0;
-      cursor: pointer;
-    }
-    #log {
-      margin-top: 14px;
-      padding: 10px;
-      border: 1px solid #ccc;
-      background: #fafafa;
-      min-height: 80px;
-      font-size: 13px;
-      line-height: 1.4;
-      white-space: pre-wrap;
-    }
-    .hint {
-      margin-top: 10px;
-      font-size: 12px;
-      color: #555;
-    }
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 0; padding: 16px; }
+    h2 { margin: 0 0 12px 0; }
+    #log { margin-top: 12px; padding: 10px; border: 1px solid #ccc; background: #fafafa; min-height: 70px; font-size: 13px; white-space: pre-wrap; }
   </style>
 
-  <script>
-    // NOTE:
-    // This page runs INSIDE an iframe in Business Central.
-    // It CANNOT call Microsoft.Dynamics.NAV directly.
-    // Instead it talks to the parent (startup.js) via postMessage.
-
-    function log(msg) {
-      var el = document.getElementById("log");
-      if (el) el.innerHTML += msg + "\n";
-    }
-
-    function sendToAL() {
-      // Send a message up to the parent (startup.js bridge)
-      window.parent.postMessage(
-        { type: "MessageFromJs", message: "Hello from the GitHub page!" },
-        "*"
-      );
-      log("Sent to AL (via parent bridge): Hello from the GitHub page!");
-    }
-
-    // Receive messages coming FROM AL (forwarded by startup.js)
-    window.addEventListener("message", function (event) {
-      var data = event.data || {};
-      if (data.type === "FromAL") {
-        log("From AL: " + String(data.message || ""));
-      }
-    });
-
-    window.addEventListener("load", function () {
-      log("GitHub page loaded.");
-      log("Waiting for messages from AL...");
-    });
-  </script>
+  <!-- Form.io JS -->
+  <script src="https://cdn.form.io/formiojs/formio.full.min.js"></script>
 </head>
 
 <body>
-  <h2>Business Central Control Add-in Test</h2>
+  <h2>Form.io Test (running inside BC)</h2>
 
-  <button onclick="sendToAL()">Send Message to AL</button>
-
-  <div class="hint">
-    If you see this page inside Business Central, the iframe is working. Messages go through <code>postMessage</code>.
-  </div>
-
+  <div id="formio"></div>
   <div id="log"></div>
+
+  <script>
+    function log(msg) {
+      const el = document.getElementById("log");
+      el.textContent += msg + "\n";
+    }
+
+    // Send to AL via the parent bridge (startup.js)
+    function sendToAL(payload) {
+      window.parent.postMessage(
+        { type: "MessageFromJs", message: JSON.stringify(payload) },
+        "*"
+      );
+    }
+
+    // Build a simple form (no account needed)
+    const formDef = {
+      display: "form",
+      components: [
+        { type: "textfield", key: "customerNo", label: "Customer No", input: true, placeholder: "10000" },
+        { type: "number", key: "amount", label: "Amount", input: true, decimalLimit: 2 },
+        { type: "checkbox", key: "rush", label: "Rush?", input: true },
+        { type: "textarea", key: "notes", label: "Notes", input: true },
+        { type: "button", action: "submit", label: "Submit", theme: "primary" }
+      ]
+    };
+
+    Formio.createForm(document.getElementById("formio"), formDef).then((form) => {
+      log("Form.io loaded.");
+
+      // When user submits, send the submission to BC
+      form.on("submit", (submission) => {
+        log("Submitted. Sending to AL...");
+        sendToAL({
+          event: "submit",
+          data: submission.data
+        });
+      });
+
+      // Optional: send changes as user types (can be noisy)
+      // form.on("change", (chg) => {
+      //   sendToAL({ event: "change", data: form.submission?.data || {} });
+      // });
+
+      // Receive messages FROM AL (via startup.js bridge)
+      window.addEventListener("message", (event) => {
+        const data = event.data || {};
+        if (data.type === "FromAL") {
+          log("From AL: " + data.message);
+
+          // Optional: if AL sends JSON, prefill the form
+          try {
+            const obj = JSON.parse(data.message);
+            form.submission = { data: obj };
+            form.redraw();
+            log("Prefilled form from AL JSON.");
+          } catch (e) {
+            // ignore if it's not JSON
+          }
+        }
+      });
+    }).catch((err) => {
+      log("Form.io failed to load: " + err);
+    });
+  </script>
 </body>
 </html>
