@@ -5,16 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Form.io in Business Central (iframe)</title>
 
-  <!-- Form.io CSS -->
   <link rel="stylesheet" href="https://cdn.form.io/formiojs/formio.full.min.css">
 
   <style>
     body { font-family: Segoe UI, Arial, sans-serif; margin: 0; padding: 16px; }
     h2 { margin: 0 0 12px 0; }
-    #log { margin-top: 12px; padding: 10px; border: 1px solid #ccc; background: #fafafa; min-height: 70px; font-size: 13px; white-space: pre-wrap; }
+    #log {
+      margin-top: 12px; padding: 10px; border: 1px solid #ccc;
+      background: #fafafa; min-height: 90px; font-size: 13px; white-space: pre-wrap;
+    }
   </style>
 
-  <!-- Form.io JS -->
   <script src="https://cdn.form.io/formiojs/formio.full.min.js"></script>
 </head>
 
@@ -25,15 +26,33 @@
   <div id="log"></div>
 
   <script>
+    let form; // make it accessible in message handler
+
     function log(msg) {
       const el = document.getElementById("log");
       el.textContent += msg + "\n";
     }
 
-    // Send to AL via the parent bridge (startup.js)
-    function sendToAL(payload) {
+    // Simple event to AL (through startup.js bridge)
+    function sendEventToAL(payload) {
       window.parent.postMessage(
         { type: "MessageFromJs", message: JSON.stringify(payload) },
+        "*"
+      );
+    }
+
+    // Request/response to AL (through startup.js bridge)
+    function requestFirstCustomerStartingWithM() {
+      const requestId = String(Date.now());
+      log("Requesting first customer with Name starting with 'M'...");
+
+      window.parent.postMessage(
+        {
+          type: "BC_REQUEST",
+          action: "GetFirstCustomerByNamePrefix",
+          prefix: "M",
+          requestId: requestId
+        },
         "*"
       );
     }
@@ -42,51 +61,91 @@
     const formDef = {
       display: "form",
       components: [
+        {
+          type: "button",
+          key: "loadFirstM",
+          label: "Load first 'M' customer (from BC)",
+          action: "event",
+          event: "loadFirstM",
+          theme: "secondary"
+        },
+
         { type: "textfield", key: "customerNo", label: "Customer No", input: true, placeholder: "10000" },
         { type: "number", key: "amount", label: "Amount", input: true, decimalLimit: 2 },
         { type: "checkbox", key: "rush", label: "Rush?", input: true },
         { type: "textarea", key: "notes", label: "Notes", input: true },
-        { type: "button", action: "submit", label: "Submit", theme: "primary" }
+
+        // IMPORTANT: use a custom event button, not Form.io submit
+        {
+          type: "button",
+          key: "submitToBC",
+          label: "Submit to BC",
+          action: "event",
+          event: "submitToBC",
+          theme: "primary"
+        }
       ]
     };
 
-    Formio.createForm(document.getElementById("formio"), formDef).then((form) => {
+    Formio.createForm(document.getElementById("formio"), formDef).then((f) => {
+      form = f;
       log("Form.io loaded.");
 
-      // When user submits, send the submission to BC
-      form.on("submit", (submission) => {
-        log("Submitted. Sending to AL...");
-        sendToAL({
-          event: "submit",
-          data: submission.data
-        });
+      // Button: Load first M customer
+      form.on("loadFirstM", () => {
+        requestFirstCustomerStartingWithM();
       });
 
-      // Optional: send changes as user types (can be noisy)
-      // form.on("change", (chg) => {
-      //   sendToAL({ event: "change", data: form.submission?.data || {} });
-      // });
+      // Button: Submit to BC
+      form.on("submitToBC", () => {
+        const data = (form.submission && form.submission.data) ? form.submission.data : {};
+        log("Sending submission to AL...");
+        sendEventToAL({ event: "submit", data: data });
+      });
 
-      // Receive messages FROM AL (via startup.js bridge)
+      // Receive replies FROM AL (via startup.js bridge)
       window.addEventListener("message", (event) => {
-        const data = event.data || {};
-        if (data.type === "FromAL") {
-          log("From AL: " + data.message);
+        const msg = event.data || {};
+        if (msg.type !== "FromAL") return;
 
-          // Optional: if AL sends JSON, prefill the form
-          try {
-            const obj = JSON.parse(data.message);
+        log("From AL: " + msg.message);
+
+        // AL may send JSON; try parse and act
+        let obj;
+        try { obj = JSON.parse(msg.message); } catch { return; }
+
+        // Expecting a response like:
+        // { "action":"GetFirstCustomerByNamePrefixResult", "ok":true, "customerNo":"...", "name":"..." }
+        if (obj.action === "GetFirstCustomerByNamePrefixResult") {
+          if (obj.ok) {
+            form.submission = {
+              data: {
+                customerNo: obj.customerNo || "",
+                notes: obj.name || "",
+                amount: 0,
+                rush: false
+              }
+            };
+            form.redraw();
+            log("Prefilled form with customer " + (obj.customerNo || "") + " (" + (obj.name || "") + ")");
+          } else {
+            log("Error: " + (obj.error || "Unknown error"));
+          }
+        } else {
+          // Optional: if AL sends plain JSON intended to prefill the whole form
+          // (If you want this behavior, keep it; otherwise remove this block)
+          if (obj && typeof obj === "object" && !obj.action) {
             form.submission = { data: obj };
             form.redraw();
             log("Prefilled form from AL JSON.");
-          } catch (e) {
-            // ignore if it's not JSON
           }
         }
       });
+
     }).catch((err) => {
       log("Form.io failed to load: " + err);
     });
   </script>
 </body>
 </html>
+
