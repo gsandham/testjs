@@ -5,17 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Form.io in Business Central (iframe)</title>
 
+  <!-- Form.io CSS -->
   <link rel="stylesheet" href="https://cdn.form.io/formiojs/formio.full.min.css">
 
   <style>
     body { font-family: Segoe UI, Arial, sans-serif; margin: 0; padding: 16px; }
     h2 { margin: 0 0 12px 0; }
     #log {
-      margin-top: 12px; padding: 10px; border: 1px solid #ccc;
-      background: #fafafa; min-height: 90px; font-size: 13px; white-space: pre-wrap;
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      background: #fafafa;
+      min-height: 90px;
+      font-size: 13px;
+      white-space: pre-wrap;
     }
   </style>
 
+  <!-- Form.io JS -->
   <script src="https://cdn.form.io/formiojs/formio.full.min.js"></script>
 </head>
 
@@ -26,14 +33,14 @@
   <div id="log"></div>
 
   <script>
-    let form; // make it accessible in message handler
+    let form; // make it accessible to message handlers
 
     function log(msg) {
       const el = document.getElementById("log");
       el.textContent += msg + "\n";
     }
 
-    // Simple event to AL (through startup.js bridge)
+    // Send a simple event to AL via the parent bridge (startup.js)
     function sendEventToAL(payload) {
       window.parent.postMessage(
         { type: "MessageFromJs", message: JSON.stringify(payload) },
@@ -41,23 +48,24 @@
       );
     }
 
-    // Request/response to AL (through startup.js bridge)
-    function requestFirstCustomerStartingWithM() {
+    // Send a request to AL (startup.js will forward to AL)
+    function sendRequestToAL(action, payload) {
       const requestId = String(Date.now());
-      log("Requesting first customer with Name starting with 'M'...");
-
       window.parent.postMessage(
-        {
-          type: "BC_REQUEST",
-          action: "GetFirstCustomerByNamePrefix",
-          prefix: "M",
-          requestId: requestId
-        },
+        Object.assign(
+          {
+            type: "BC_REQUEST",
+            action: action,
+            requestId: requestId
+          },
+          payload || {}
+        ),
         "*"
       );
+      return requestId;
     }
 
-    // Build a simple form (no account needed)
+    // Build a simple Form.io form (no account needed)
     const formDef = {
       display: "form",
       components: [
@@ -75,14 +83,33 @@
         { type: "checkbox", key: "rush", label: "Rush?", input: true },
         { type: "textarea", key: "notes", label: "Notes", input: true },
 
-        // IMPORTANT: use a custom event button, not Form.io submit
+        // NEW FIELD: Address entry
+        {
+          type: "textfield",
+          key: "address1New",
+          label: "New Address (Address 1)",
+          input: true,
+          placeholder: "123 Main St"
+        },
+
+        // NEW BUTTON: Update address in BC
+        {
+          type: "button",
+          key: "updateAddress",
+          label: "Update Customer Address in BC",
+          action: "event",
+          event: "updateAddress",
+          theme: "primary"
+        },
+
+        // Optional: keep a submit-to-BC button for testing
         {
           type: "button",
           key: "submitToBC",
-          label: "Submit to BC",
+          label: "Submit to BC (test)",
           action: "event",
           event: "submitToBC",
-          theme: "primary"
+          theme: "info"
         }
       ]
     };
@@ -91,31 +118,46 @@
       form = f;
       log("Form.io loaded.");
 
-      // Button: Load first M customer
+      // Load first customer whose Name starts with M
       form.on("loadFirstM", () => {
-        requestFirstCustomerStartingWithM();
+        log("➡ Requesting first customer with Name starting with 'M'...");
+        sendRequestToAL("GetFirstCustomerByNamePrefix", { prefix: "M" });
       });
 
-      // Button: Submit to BC
+      // Update address in BC
+      form.on("updateAddress", () => {
+        const data = (form.submission && form.submission.data) ? form.submission.data : {};
+        const customerNo = String(data.customerNo || "").trim();
+        const address1New = String(data.address1New || "").trim();
+
+        if (!customerNo) { log("❌ Customer No is required."); return; }
+        if (!address1New) { log("❌ New Address is required."); return; }
+
+        log("➡ Requesting address update in BC...");
+        sendRequestToAL("UpdateCustomerAddress", {
+          customerNo: customerNo,
+          address1New: address1New
+        });
+      });
+
+      // Optional: Submit to BC (test)
       form.on("submitToBC", () => {
         const data = (form.submission && form.submission.data) ? form.submission.data : {};
-        log("Sending submission to AL...");
+        log("➡ Sending submit event to AL...");
         sendEventToAL({ event: "submit", data: data });
       });
 
-      // Receive replies FROM AL (via startup.js bridge)
+      // Receive messages FROM AL (via startup.js bridge)
       window.addEventListener("message", (event) => {
         const msg = event.data || {};
         if (msg.type !== "FromAL") return;
 
         log("From AL: " + msg.message);
 
-        // AL may send JSON; try parse and act
         let obj;
         try { obj = JSON.parse(msg.message); } catch { return; }
 
-        // Expecting a response like:
-        // { "action":"GetFirstCustomerByNamePrefixResult", "ok":true, "customerNo":"...", "name":"..." }
+        // Prefill response
         if (obj.action === "GetFirstCustomerByNamePrefixResult") {
           if (obj.ok) {
             form.submission = {
@@ -123,24 +165,38 @@
                 customerNo: obj.customerNo || "",
                 notes: obj.name || "",
                 amount: 0,
-                rush: false
+                rush: false,
+                address1New: ""
               }
             };
             form.redraw();
-            log("Prefilled form with customer " + (obj.customerNo || "") + " (" + (obj.name || "") + ")");
+            log("✅ Prefilled customer: " + (obj.customerNo || "") + " (" + (obj.name || "") + ")");
           } else {
-            log("Error: " + (obj.error || "Unknown error"));
+            log("❌ " + (obj.error || "No customer found"));
           }
-        } else {
-          // Optional: if AL sends plain JSON intended to prefill the whole form
-          // (If you want this behavior, keep it; otherwise remove this block)
-          if (obj && typeof obj === "object" && !obj.action) {
-            form.submission = { data: obj };
-            form.redraw();
-            log("Prefilled form from AL JSON.");
+          return;
+        }
+
+        // Address update response
+        if (obj.action === "UpdateCustomerAddressResult") {
+          if (obj.ok) {
+            log("✅ Address updated for " + (obj.customerNo || "") + ": " + (obj.address1 || ""));
+          } else {
+            log("❌ Update failed: " + (obj.error || "Unknown error"));
           }
+          return;
+        }
+
+        // Optional: generic prefill if AL sends raw JSON with matching keys
+        if (obj && typeof obj === "object" && !obj.action) {
+          form.submission = { data: obj };
+          form.redraw();
+          log("Prefilled form from AL JSON.");
         }
       });
+
+      // Optional: tell AL we're loaded
+      sendEventToAL({ event: "loaded", at: new Date().toISOString() });
 
     }).catch((err) => {
       log("Form.io failed to load: " + err);
@@ -148,4 +204,3 @@
   </script>
 </body>
 </html>
-
